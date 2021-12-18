@@ -62,6 +62,7 @@ type Application struct {
 	HasCode               androidbinary.Bool   `xml:"http://schemas.android.com/apk/res/android hasCode,attr"`
 	HardwareAccelerated   androidbinary.Bool   `xml:"http://schemas.android.com/apk/res/android hardwareAccelerated,attr"`
 	Icon                  androidbinary.String `xml:"http://schemas.android.com/apk/res/android icon,attr"`
+	Banner                androidbinary.String `xml:"http://schemas.android.com/apk/res/android banner,attr"`
 	KillAfterRestore      androidbinary.Bool   `xml:"http://schemas.android.com/apk/res/android killAfterRestore,attr"`
 	LargeHeap             androidbinary.Bool   `xml:"http://schemas.android.com/apk/res/android largeHeap,attr"`
 	Label                 androidbinary.String `xml:"http://schemas.android.com/apk/res/android label,attr"`

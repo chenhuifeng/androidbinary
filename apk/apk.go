@@ -89,6 +89,23 @@ func (k *Apk) Icon(resConfig *androidbinary.ResTableConfig) (image.Image, error)
 	return m, err
 }
 
+// Icon returns the banner image of the APK.
+func (k *Apk) Banner(resConfig *androidbinary.ResTableConfig) (image.Image, error) {
+	iconPath, err := k.manifest.App.Banner.WithResTableConfig(resConfig).String()
+	if err != nil {
+		return nil, err
+	}
+	if androidbinary.IsResID(iconPath) {
+		return nil, newError("unable to convert banner-id to banner path")
+	}
+	imgData, err := k.readZipFile(iconPath)
+	if err != nil {
+		return nil, err
+	}
+	m, _, err := image.Decode(bytes.NewReader(imgData))
+	return m, err
+}
+
 // Label returns the label of the APK.
 func (k *Apk) Label(resConfig *androidbinary.ResTableConfig) (s string, err error) {
 	s, err = k.manifest.App.Label.WithResTableConfig(resConfig).String()
