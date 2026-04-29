@@ -1,4 +1,4 @@
-package com.shogo82148.androidbinary.myapplication
+package com.chenhuifeng.androidbinary.myapplication
 
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -19,6 +19,6 @@ class ExampleInstrumentedTest {
     fun useAppContext() {
         // Context of the app under test.
         val appContext = InstrumentationRegistry.getInstrumentation().targetContext
-        assertEquals("com.shogo82148.androidbinary.myapplication", appContext.packageName)
+        assertEquals("com.chenhuifeng.androidbinary.myapplication", appContext.packageName)
     }
 }
