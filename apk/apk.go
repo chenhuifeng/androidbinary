@@ -3,13 +3,19 @@ package apk
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/hex"
 	"fmt"
 	"image"
 	"io"
+	"io/ioutil"
+	"math"
 	"os"
+	"regexp"
+	"strings"
 
 	"github.com/shogo82148/androidbinary"
 
+	"github.com/chai2010/webp"
 	_ "image/jpeg" // handle jpeg format
 	_ "image/png"  // handle png format
 )
@@ -71,12 +77,68 @@ func (k *Apk) Close() error {
 	return k.f.Close()
 }
 
+// Banner returns the banner image of the APK.
+func (k *Apk) Banner(resConfig *androidbinary.ResTableConfig) (image.Image, string, error) {
+	iconPath, err := k.manifest.App.Banner.WithResTableConfig(resConfig).String()
+	if err != nil {
+		return nil, "", err
+	}
+
+	if iconPath == "" {
+		if len(k.manifest.App.Activities) > 0 {
+			iconPath, err = k.manifest.App.Activities[0].Banner.WithResTableConfig(resConfig).String()
+			if err != nil {
+				return nil, "", err
+			}
+		}
+	}
+
+	if iconPath == "" {
+		iconPath, err = k.manifest.App.Icon.WithResTableConfig(resConfig).String()
+		if err != nil {
+			return nil, "", err
+		}
+	}
+
+	if androidbinary.IsResID(iconPath) {
+		return nil, "", newError("unable to convert banner-id to banner path")
+	}
+
+	imgData, err := k.readZipFile(iconPath)
+	if err != nil {
+		return nil, "", err
+	}
+
+	if strings.HasSuffix(iconPath, ".xml") {
+		xmlFile, err := androidbinary.NewXMLFile(bytes.NewReader(imgData))
+		if err != nil {
+			return nil, "", err
+		}
+
+		allData, err := ioutil.ReadAll(xmlFile.Reader())
+		if err != nil {
+			return nil, "", err
+		}
+
+		svg, err := k.ConvertXMLToSVG(string(allData))
+		return nil, svg, err
+	}
+
+	m, imageType, err := image.Decode(bytes.NewReader(imgData))
+	if imageType == "webp" && err != nil {
+		m, err = webp.Decode(bytes.NewReader(imgData))
+	}
+
+	return m, "", err
+}
+
 // Icon returns the icon image of the APK.
 func (k *Apk) Icon(resConfig *androidbinary.ResTableConfig) (image.Image, error) {
 	iconPath, err := k.manifest.App.Icon.WithResTableConfig(resConfig).String()
 	if err != nil {
 		return nil, err
 	}
+
 	if androidbinary.IsResID(iconPath) {
 		return nil, newError("unable to convert icon-id to icon path")
 	}
@@ -84,7 +146,10 @@ func (k *Apk) Icon(resConfig *androidbinary.ResTableConfig) (image.Image, error)
 	if err != nil {
 		return nil, err
 	}
-	m, _, err := image.Decode(bytes.NewReader(imgData))
+	m, image_type, err := image.Decode(bytes.NewReader(imgData))
+	if image_type == "webp" && err != nil {
+		m, err = webp.Decode(bytes.NewReader(imgData))
+	}
 	return m, err
 }
 
@@ -108,6 +173,22 @@ func (k *Apk) Manifest() Manifest {
 // PackageName returns the package name of the APK.
 func (k *Apk) PackageName() string {
 	return k.manifest.Package.MustString()
+}
+
+// VersionCode returns the versionCode of the APK.
+func (k *Apk) VersionCode() int32 {
+	return k.manifest.VersionCode.MustInt32()
+}
+
+// VersionName returns the version name of the APK.
+func (k *Apk) VersionName() string {
+	return k.manifest.VersionName.MustString()
+}
+
+// Size returns the size of the APK.
+func (k *Apk) Size() int64 {
+	fInfo, _ := k.f.Stat()
+	return fInfo.Size()
 }
 
 func isMainIntentFilter(intent ActivityIntentFilter) bool {
@@ -193,4 +274,97 @@ func (k *Apk) readZipFile(name string) (data []byte, err error) {
 		return buf.Bytes(), nil
 	}
 	return nil, fmt.Errorf("apk: file %q not found", name)
+}
+
+func (k *Apk) ConvertXMLToSVG(xmlContent string) (string, error) {
+	viewBoxWidth := "0"
+	viewBoxHeight := "0"
+
+	viewportWidth := regexp.MustCompile(`android:viewportWidth="@(.*?)"`).FindStringSubmatch(xmlContent)
+	if len(viewportWidth) > 1 {
+		viewBoxWidth = viewportWidth[1]
+		viewBoxWidth = fmt.Sprintf("%d", int(hexToFloat32(viewBoxWidth)))
+
+	}
+
+	viewportHeight := regexp.MustCompile(`android:viewportHeight="@(.*?)"`).FindStringSubmatch(xmlContent)
+	if len(viewportHeight) > 1 {
+		viewBoxHeight = viewportHeight[1]
+		viewBoxHeight = fmt.Sprintf("%d", int(hexToFloat32(viewBoxHeight)))
+	}
+
+	pathBlock := ""
+	matchPathLines := regexp.MustCompile(`(<path.*?</path>)`).FindAllString(xmlContent, -1)
+
+	for _, line := range matchPathLines {
+		fill := "#ffffff"
+		matchFillColor := regexp.MustCompile(`android:fillColor="(.*?)"`).FindStringSubmatch(line)
+		if len(matchFillColor) > 1 {
+			if len(matchFillColor[1]) > 7 && strings.HasPrefix(matchFillColor[1], "@0xFF") {
+				fill = "#" + strings.TrimPrefix(matchFillColor[1], "@0xFF")
+			}
+		}
+
+		pathData := ""
+		matchPathData := regexp.MustCompile(`android:pathData="(.*?)"`).FindStringSubmatch(line)
+		if len(matchPathData) > 1 {
+			pathData = matchPathData[1]
+		}
+		pathBlock += fmt.Sprintf("<path fill=\"%s\" d=\"%s\" ", fill, pathData)
+
+		strokeOpacity := `` // stroke-opacity="0.0"
+		matchStrokeAlpha := regexp.MustCompile(`android:strokeAlpha="@(.*?)"`).FindStringSubmatch(line)
+		if len(matchStrokeAlpha) > 1 {
+			strokeOpacity = fmt.Sprintf(`stroke-opacity="%.1f"`, hexToFloat32(matchStrokeAlpha[1]))
+		}
+
+		if strokeOpacity != "" {
+			pathBlock += " " + strokeOpacity + " "
+		}
+
+		fillOpacity := `` // fill-opacity="0.0"
+		matchFillOpacity := regexp.MustCompile(`android:fillAlpha="@(.*?)"`).FindStringSubmatch(line)
+		if len(matchFillOpacity) > 1 {
+			fillOpacity = fmt.Sprintf(`fill-opacity="%.1f"`, hexToFloat32(matchFillOpacity[1]))
+		}
+		if fillOpacity != "" {
+			pathBlock += " " + fillOpacity + " "
+		}
+
+		strokeWidth := `` // stroke-width="1.0"
+		matchStrokeWidth := regexp.MustCompile(`android:strokeWidth="@(.*?)"`).FindStringSubmatch(line)
+		if len(matchStrokeWidth) > 1 {
+			strokeWidth = fmt.Sprintf(`stroke-width="%.1f"`, hexToFloat32(matchStrokeWidth[1]))
+		}
+		if strokeWidth != "" {
+			pathBlock += " " + strokeWidth + " "
+		}
+
+		stroke := `` // stroke="#000000ff"
+		matchStrokeColor := regexp.MustCompile(`android:strokeColor="@(.*?)"`).FindStringSubmatch(line)
+		if len(matchStrokeColor) > 1 {
+			stroke = fmt.Sprintf(`stroke="%s"`, "#"+strings.TrimPrefix(matchStrokeColor[1], "0xFF"))
+		}
+		if stroke != "" {
+			pathBlock += " " + stroke + " "
+		}
+		pathBlock += " />\n"
+	}
+
+	svgContent := ""
+	svgContent += fmt.Sprintf("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 %s %s\" >\n", viewBoxWidth, viewBoxHeight)
+	svgContent += fmt.Sprintf(pathBlock)
+	svgContent += fmt.Sprintf("</svg>")
+
+	return svgContent, nil
+}
+
+func hexToFloat32(hexStr string) float32 {
+	// trim the prefix "0x"
+	hexStr = hexStr[2:]
+	// Converts hex string to []bytes
+	hBytes, _ := hex.DecodeString(hexStr)
+	// convert []bytes to float32
+	bits := uint32(hBytes[0])<<24 | uint32(hBytes[1])<<16 | uint32(hBytes[2])<<8 | uint32(hBytes[3])
+	return math.Float32frombits(bits)
 }
