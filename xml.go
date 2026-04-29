@@ -55,6 +55,9 @@ func (x *xmlNamespaces) get(key ResStringPoolRef) ResStringPoolRef {
 			return x.l[i].value
 		}
 	}
+	if len(x.l) > 0 {
+		return x.l[0].value
+	}
 	return ResStringPoolRef(0)
 }
 
@@ -158,15 +161,28 @@ func (f *XMLFile) readChunk(r io.ReaderAt, offset int64) (*ResChunkHeader, error
 	switch chunkHeader.Type {
 	case ResStringPoolChunkType:
 		f.stringPool, err = readStringPool(sr)
+	case ResXMLResourceMapType:
+		err = f.readResourceMap(sr)
+
 	case ResXMLStartNamespaceType:
 		err = f.readStartNamespace(sr)
+
 	case ResXMLEndNamespaceType:
 		err = f.readEndNamespace(sr)
+
 	case ResXMLStartElementType:
 		err = f.readStartElement(sr)
+
 	case ResXMLEndElementType:
 		err = f.readEndElement(sr)
+
+	case ResXMLCDataType:
+		err = f.readXmlCData(sr)
+
+	case ResNullChunkType:
+		err = f.readNull(sr)
 	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -267,12 +283,6 @@ func (f *XMLFile) readStartElement(sr *io.SectionReader) error {
 	// output XML namespaces
 	if f.notPrecessedNS != nil {
 		for uri, prefix := range f.notPrecessedNS {
-			if !f.HasString(uri) {
-				return &InvalidReferenceError{Ref: uri}
-			}
-			if !f.HasString(prefix) {
-				return &InvalidReferenceError{Ref: prefix}
-			}
 			fmt.Fprintf(&f.xmlBuffer, " xmlns:%s=\"", f.GetString(prefix))
 			xml.Escape(&f.xmlBuffer, []byte(f.GetString(uri)))
 			fmt.Fprint(&f.xmlBuffer, "\"")
@@ -291,9 +301,6 @@ func (f *XMLFile) readStartElement(sr *io.SectionReader) error {
 
 		var value string
 		if attr.RawValue != NilResStringPoolRef {
-			if !f.HasString(attr.RawValue) {
-				return &InvalidReferenceError{Ref: attr.RawValue}
-			}
 			value = f.GetString(attr.RawValue)
 		} else {
 			data := attr.TypedValue.Data
@@ -347,5 +354,17 @@ func (f *XMLFile) readEndElement(sr *io.SectionReader) error {
 		return err
 	}
 	fmt.Fprintf(&f.xmlBuffer, "</%s>", tag)
+	return nil
+}
+
+func (f *XMLFile) readResourceMap(sr *io.SectionReader) error {
+	return nil
+}
+
+func (f *XMLFile) readXmlCData(sr *io.SectionReader) error {
+	return nil
+}
+
+func (f *XMLFile) readNull(sr *io.SectionReader) error {
 	return nil
 }

@@ -57,7 +57,7 @@ type ResTableType struct {
 // ScreenLayout describes screen layout.
 type ScreenLayout uint8
 
-// ScreenLayout bits
+// Screen Layout bits
 const (
 	MaskScreenSize   ScreenLayout = 0x0f
 	ScreenSizeAny    ScreenLayout = 0x01
@@ -262,6 +262,7 @@ func (p *TablePackage) findEntry(typeIndex, entryIndex int, config *ResTableConf
 			best = t
 		}
 	}
+
 	if best == nil || entryIndex >= len(best.Entries) {
 		return TableEntry{}
 	}
@@ -280,6 +281,8 @@ func (f *TableFile) GetResource(id ResID, config *ResTableConfig) (interface{}, 
 		return nil, fmt.Errorf("androidbinary: entry 0x%04X not found", id.Entry())
 	}
 	switch v.DataType {
+	case TypeReference:
+		return f.GetResource(ResID(v.Data), config)
 	case TypeNull:
 		return nil, nil
 	case TypeString:

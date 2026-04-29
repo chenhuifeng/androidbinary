@@ -31,6 +31,8 @@ type ActivityIntentFilter struct {
 // AppActivity is an activity in an application.
 type AppActivity struct {
 	Theme             androidbinary.String   `xml:"http://schemas.android.com/apk/res/android theme,attr"`
+	Banner            androidbinary.String   `xml:"http://schemas.android.com/apk/res/android banner,attr"`
+	Icon              androidbinary.String   `xml:"http://schemas.android.com/apk/res/android icon,attr"`
 	Name              androidbinary.String   `xml:"http://schemas.android.com/apk/res/android name,attr"`
 	Label             androidbinary.String   `xml:"http://schemas.android.com/apk/res/android label,attr"`
 	ScreenOrientation androidbinary.String   `xml:"http://schemas.android.com/apk/res/android screenOrientation,attr"`
@@ -62,6 +64,7 @@ type Application struct {
 	HasCode               androidbinary.Bool   `xml:"http://schemas.android.com/apk/res/android hasCode,attr"`
 	HardwareAccelerated   androidbinary.Bool   `xml:"http://schemas.android.com/apk/res/android hardwareAccelerated,attr"`
 	Icon                  androidbinary.String `xml:"http://schemas.android.com/apk/res/android icon,attr"`
+	Banner                androidbinary.String `xml:"http://schemas.android.com/apk/res/android banner,attr"`
 	KillAfterRestore      androidbinary.Bool   `xml:"http://schemas.android.com/apk/res/android killAfterRestore,attr"`
 	LargeHeap             androidbinary.Bool   `xml:"http://schemas.android.com/apk/res/android largeHeap,attr"`
 	Label                 androidbinary.String `xml:"http://schemas.android.com/apk/res/android label,attr"`
@@ -100,13 +103,11 @@ type UsesPermission struct {
 
 // Manifest is a manifest of an APK.
 type Manifest struct {
-	Package                   androidbinary.String `xml:"package,attr"`
-	CompileSDKVersion         androidbinary.Int32  `xml:"http://schemas.android.com/apk/res/android compileSdkVersion,attr"`
-	CompileSDKVersionCodename androidbinary.String `xml:"http://schemas.android.com/apk/res/android compileSdkVersionCodename,attr"`
-	VersionCode               androidbinary.Int32  `xml:"http://schemas.android.com/apk/res/android versionCode,attr"`
-	VersionName               androidbinary.String `xml:"http://schemas.android.com/apk/res/android versionName,attr"`
-	App                       Application          `xml:"application"`
-	Instrument                Instrumentation      `xml:"instrumentation"`
-	SDK                       UsesSDK              `xml:"uses-sdk"`
-	UsesPermissions           []UsesPermission     `xml:"uses-permission"`
+	Package         androidbinary.String `xml:"package,attr"`
+	VersionCode     androidbinary.Int32  `xml:"http://schemas.android.com/apk/res/android versionCode,attr"`
+	VersionName     androidbinary.String `xml:"http://schemas.android.com/apk/res/android versionName,attr"`
+	App             Application          `xml:"application"`
+	Instrument      Instrumentation      `xml:"instrumentation"`
+	SDK             UsesSDK              `xml:"uses-sdk"`
+	UsesPermissions []UsesPermission     `xml:"uses-permission"`
 }
