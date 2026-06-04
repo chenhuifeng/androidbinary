@@ -15,7 +15,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/chenhuifeng/androidbinary/apk"
+	"github.com/chenhuifeng/androidbinary/v2/apk"
 )
 
 func main() {

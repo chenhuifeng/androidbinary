@@ -13,7 +13,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/chenhuifeng/androidbinary"
+	"github.com/chenhuifeng/androidbinary/v2"
 
 	"github.com/chai2010/webp"
 	_ "image/jpeg" // handle jpeg format

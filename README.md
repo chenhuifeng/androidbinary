@@ -1,7 +1,7 @@
 # androidbinary
 
 [![Build Status](https://github.com/chenhuifeng/androidbinary/workflows/Test/badge.svg)](https://github.com/chenhuifeng/androidbinary/actions)
-[![GoDoc](https://pkg.go.dev/badge/github.com/chenhuifeng/androidbinary)](https://pkg.go.dev/github.com/chenhuifeng/androidbinary)
+[![GoDoc](https://pkg.go.dev/badge/github.com/chenhuifeng/androidbinary/v2)](https://pkg.go.dev/github.com/chenhuifeng/androidbinary/v2)
 
 Go library for parsing Android binary formats: compiled XML (`AndroidManifest.xml`), `resources.arsc`, and high-level APK metadata.
 
@@ -16,7 +16,7 @@ Go library for parsing Android binary formats: compiled XML (`AndroidManifest.xm
 ## Install
 
 ```bash
-go get github.com/chenhuifeng/androidbinary@latest
+go get github.com/chenhuifeng/androidbinary/v2@latest
 ```
 
 Requires Go 1.17+.
@@ -31,7 +31,7 @@ import (
 	"image/png"
 	"os"
 
-	"github.com/chenhuifeng/androidbinary/apk"
+	"github.com/chenhuifeng/androidbinary/v2/apk"
 )
 
 func main() {
@@ -102,14 +102,13 @@ value, _ := tf.GetResource(resID, nil)
 
 ## Changelog
 
+### v2.0.2
+
+- Fix Go module path: `github.com/chenhuifeng/androidbinary/v2` (required for `go get` v2.x)
+
 ### v2.0.1
 
-- APK icon/banner extraction with adaptive-icon and vector drawable support
-- `GetResourcePathPreferRaster` — prefer mipmap PNG/WebP over `mipmap-anydpi-v26` XML
-- `OpenFile` supports zip containers and XAPK (selects base APK with `resources.arsc`)
-- `Icon` / `Banner` only resolve their own manifest attributes (no cross-fallback)
-- New `extract-icons` CLI under `apk/cmd/extract-icons`
-- Dependencies: `oksvg`, `rasterx`, `webp`
+- APK icon/banner extraction, zip/xapk support, `extract-icons` CLI (broken `go get` — module path lacked `/v2`; use v2.0.2)
 
 ### Earlier releases
 

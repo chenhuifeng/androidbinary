@@ -1,7 +1,7 @@
 package apk
 
 import (
-	"github.com/chenhuifeng/androidbinary"
+	"github.com/chenhuifeng/androidbinary/v2"
 )
 
 // Instrumentation is an application instrumentation code.

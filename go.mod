@@ -1,4 +1,4 @@
-module github.com/chenhuifeng/androidbinary
+module github.com/chenhuifeng/androidbinary/v2
 
 go 1.17
 
