@@ -120,6 +120,11 @@ See [git tags](https://github.com/chenhuifeng/androidbinary/tags).
 ```bash
 go test ./...
 cd apk && go test -v ./...
+```
+
+APK integration tests need local files under `apk/testdata/` (not committed). See [apk/testdata/README.md](apk/testdata/README.md).
+
+```bash
 go run ./cmd/extract-icons -apk testdata/base.apk -o ./out
 ```
 

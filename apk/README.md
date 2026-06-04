@@ -69,13 +69,15 @@ Output files (prefix = APK basename without extension):
 
 ## Tests
 
+Large APK fixtures are **not** in git. Copy samples into `testdata/` (see [testdata/README.md](testdata/README.md)), then:
+
 ```bash
-go test -v -run TestParseAPKFile      # base.apk (Disney+)
-go test -v -run TestOpenFileZipContainer  # disney.zip
-go test -v -run TestOpenFileXapk      # Emby.xapk
+go test -v -run TestParseAPKFile      # needs testdata/base.apk
+go test -v -run TestOpenFileZipContainer  # needs testdata/disney.zip
+go test -v -run TestOpenFileXapk      # needs testdata/Emby.xapk
 ```
 
-Test fixtures live in `testdata/` (`.apk`, `.zip`, `.xapk`). Unpacked APK trees under `testdata/*/` are gitignored.
+Without fixtures, these tests are skipped so CI stays green.
 
 ## Example — read package info
 

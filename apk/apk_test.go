@@ -1,13 +1,24 @@
 package apk
 
 import (
+	"os"
 	_ "image/jpeg"
 	_ "image/png"
 	"testing"
 )
 
+func requireFixture(t *testing.T, path string) {
+	t.Helper()
+	if _, err := os.Stat(path); err != nil {
+		t.Skipf("fixture %s not found — add test APKs under apk/testdata/ (see README.md)", path)
+	}
+}
+
 func TestOpenFileXapk(t *testing.T) {
-	apk, err := OpenFile("testdata/Emby.xapk")
+	const path = "testdata/Emby.xapk"
+	requireFixture(t, path)
+
+	apk, err := OpenFile(path)
 	if err != nil {
 		t.Fatalf("OpenFile Emby.xapk: %v", err)
 	}
@@ -24,7 +35,10 @@ func TestOpenFileXapk(t *testing.T) {
 }
 
 func TestOpenFileZipContainer(t *testing.T) {
-	apk, err := OpenFile("testdata/disney.zip")
+	const path = "testdata/disney.zip"
+	requireFixture(t, path)
+
+	apk, err := OpenFile(path)
 	if err != nil {
 		t.Fatalf("OpenFile disney.zip: %v", err)
 	}
@@ -41,7 +55,10 @@ func TestOpenFileZipContainer(t *testing.T) {
 }
 
 func TestParseAPKFile(t *testing.T) {
-	apk, err := OpenFile("testdata/base.apk")
+	const path = "testdata/base.apk"
+	requireFixture(t, path)
+
+	apk, err := OpenFile(path)
 	if err != nil {
 		t.Errorf("OpenFile error: %v", err)
 	}

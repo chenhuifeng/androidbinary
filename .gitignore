@@ -40,11 +40,9 @@ Thumbs.db
 *.swp
 *.swo
 
-# Unpacked APK fixture trees (keep archive fixtures: *.apk, *.zip, *.xapk)
+# APK integration test fixtures (large; keep locally only)
 apk/testdata/*
-!apk/testdata/*.apk
-!apk/testdata/*.zip
-!apk/testdata/*.xapk
+!apk/testdata/README.md
 
 # Local env / secrets
 .env
