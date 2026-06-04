@@ -9,6 +9,19 @@ import (
 	"unsafe"
 )
 
+func isRasterResourcePath(path string) bool {
+	switch {
+	case strings.HasSuffix(path, ".png"),
+		strings.HasSuffix(path, ".webp"),
+		strings.HasSuffix(path, ".9.png"),
+		strings.HasSuffix(path, ".jpg"),
+		strings.HasSuffix(path, ".jpeg"):
+		return true
+	default:
+		return false
+	}
+}
+
 // ResID is ID for resources.
 type ResID uint32
 
@@ -295,6 +308,72 @@ func (f *TableFile) GetResource(id ResID, config *ResTableConfig) (interface{}, 
 		return v.Data != 0, nil
 	}
 	return v.Data, nil
+}
+
+// GetResourcePathPreferRaster resolves a resource to a file path, preferring
+// bitmap mipmaps (e.g. mipmap-xxxhdpi/*.png) over adaptive/vector XML.
+func (f *TableFile) GetResourcePathPreferRaster(id ResID, config *ResTableConfig) (string, error) {
+	p := f.findPackage(id.Package())
+	if p == nil {
+		return "", fmt.Errorf("androidbinary: package 0x%02X not found", id.Package())
+	}
+
+	typeIndex := id.Type()
+	entryIndex := id.Entry()
+
+	var bestPath string
+	var bestDensity uint16
+
+	for _, t := range p.TableTypes {
+		if int(t.Header.ID) != typeIndex {
+			continue
+		}
+		if !t.Header.Config.Match(config) {
+			continue
+		}
+		if entryIndex >= len(t.Entries) {
+			continue
+		}
+		path, err := f.entryFilePath(t.Entries[entryIndex].Value, config)
+		if err != nil || !isRasterResourcePath(path) {
+			continue
+		}
+		density := t.Header.Config.Density
+		if bestPath == "" || density >= bestDensity {
+			bestDensity = density
+			bestPath = path
+		}
+	}
+
+	if bestPath != "" {
+		return bestPath, nil
+	}
+	return "", fmt.Errorf("androidbinary: no raster resource for %s", id)
+}
+
+func (f *TableFile) entryFilePath(v *ResValue, config *ResTableConfig) (string, error) {
+	if v == nil {
+		return "", fmt.Errorf("androidbinary: nil resource value")
+	}
+	switch v.DataType {
+	case TypeReference:
+		if path, err := f.GetResourcePathPreferRaster(ResID(v.Data), config); err == nil {
+			return path, nil
+		}
+		value, err := f.GetResource(ResID(v.Data), config)
+		if err != nil {
+			return "", err
+		}
+		path, ok := value.(string)
+		if !ok {
+			return "", fmt.Errorf("androidbinary: invalid type: %T", value)
+		}
+		return path, nil
+	case TypeString:
+		return f.GetString(ResStringPoolRef(v.Data)), nil
+	default:
+		return "", fmt.Errorf("androidbinary: unsupported resource value type 0x%02X", v.DataType)
+	}
 }
 
 // GetString returns a string referenced by ref.

@@ -28,7 +28,7 @@ type Apk struct {
 	table     *androidbinary.TableFile
 }
 
-// OpenFile will open the file specified by filename and return Apk
+// OpenFile opens an APK file or a zip/xapk container (e.g. disney.zip, Emby.xapk) that embeds a base APK.
 func OpenFile(filename string) (apk *Apk, err error) {
 	f, err := os.Open(filename)
 	if err != nil {
@@ -43,7 +43,7 @@ func OpenFile(filename string) (apk *Apk, err error) {
 	if err != nil {
 		return nil, err
 	}
-	apk, err = OpenZipReader(f, fi.Size())
+	apk, err = openFromReaderAt(f, fi.Size())
 	if err != nil {
 		return nil, err
 	}
@@ -51,22 +51,17 @@ func OpenFile(filename string) (apk *Apk, err error) {
 	return
 }
 
-// OpenZipReader has same arguments like zip.NewReader
+// OpenZipReader has same arguments like zip.NewReader.
+// The reader must point at an APK zip (with AndroidManifest.xml at root), not an outer container zip.
 func OpenZipReader(r io.ReaderAt, size int64) (*Apk, error) {
-	zipreader, err := zip.NewReader(r, size)
+	zr, err := zip.NewReader(r, size)
 	if err != nil {
 		return nil, err
 	}
-	apk := &Apk{
-		zipreader: zipreader,
+	if !zipHasFile(zr, "AndroidManifest.xml") {
+		return nil, newError("not an APK archive: AndroidManifest.xml missing")
 	}
-	if err = apk.parseResources(); err != nil {
-		return nil, err
-	}
-	if err = apk.parseManifest(); err != nil {
-		return nil, errorf("parse-manifest: %w", err)
-	}
-	return apk, nil
+	return newApkFromZip(zr)
 }
 
 // Close is avaliable only if apk is created with OpenFile
@@ -77,16 +72,46 @@ func (k *Apk) Close() error {
 	return k.f.Close()
 }
 
-// Banner returns the banner image of the APK.
+// Banner returns the TV banner image of the APK (android:banner only).
+// If the app has no banner, returns nil image and nil error.
 func (k *Apk) Banner(resConfig *androidbinary.ResTableConfig) (image.Image, string, error) {
-	iconPath, err := k.manifest.App.Banner.WithResTableConfig(resConfig).String()
+	bannerPath, err := k.drawablePath(k.manifest.App.Banner, resConfig)
+	if err != nil {
+		return nil, "", err
+	}
+
+	if bannerPath == "" {
+		if len(k.manifest.App.Activities) > 0 {
+			bannerPath, err = k.drawablePath(k.manifest.App.Activities[0].Banner, resConfig)
+			if err != nil {
+				return nil, "", err
+			}
+		}
+	}
+
+	if bannerPath == "" {
+		return nil, "", nil
+	}
+
+	if androidbinary.IsResID(bannerPath) {
+		return nil, "", newError("unable to convert banner-id to banner path")
+	}
+
+	return k.loadDrawable(bannerPath, resConfig)
+}
+
+// Icon returns the app icon (android:icon only) as a raster image.
+// Prefers mipmap PNG/WebP over adaptive-icon XML; falls back to vector rasterization when needed.
+// If the app has no icon, returns nil image and nil error.
+func (k *Apk) Icon(resConfig *androidbinary.ResTableConfig) (image.Image, string, error) {
+	iconPath, err := k.drawablePath(k.manifest.App.Icon, resConfig)
 	if err != nil {
 		return nil, "", err
 	}
 
 	if iconPath == "" {
 		if len(k.manifest.App.Activities) > 0 {
-			iconPath, err = k.manifest.App.Activities[0].Banner.WithResTableConfig(resConfig).String()
+			iconPath, err = k.drawablePath(k.manifest.App.Activities[0].Icon, resConfig)
 			if err != nil {
 				return nil, "", err
 			}
@@ -94,63 +119,107 @@ func (k *Apk) Banner(resConfig *androidbinary.ResTableConfig) (image.Image, stri
 	}
 
 	if iconPath == "" {
-		iconPath, err = k.manifest.App.Icon.WithResTableConfig(resConfig).String()
-		if err != nil {
-			return nil, "", err
-		}
+		return nil, "", nil
 	}
 
 	if androidbinary.IsResID(iconPath) {
-		return nil, "", newError("unable to convert banner-id to banner path")
+		return nil, "", newError("unable to convert icon-id to icon path")
 	}
+	return k.loadDrawable(iconPath, resConfig)
+}
 
-	imgData, err := k.readZipFile(iconPath)
+func (k *Apk) drawablePath(attr androidbinary.String, resConfig *androidbinary.ResTableConfig) (string, error) {
+	attr = attr.WithResTableConfig(resConfig)
+	ref := attr.Ref()
+	if androidbinary.IsResID(ref) {
+		id, err := androidbinary.ParseResID(ref)
+		if err != nil {
+			return "", err
+		}
+		if path, err := k.table.GetResourcePathPreferRaster(id, resConfig); err == nil {
+			return path, nil
+		}
+	}
+	return attr.String()
+}
+
+func (k *Apk) resolveResPath(resRef string, resConfig *androidbinary.ResTableConfig) (string, error) {
+	if !androidbinary.IsResID(resRef) {
+		return resRef, nil
+	}
+	id, err := androidbinary.ParseResID(resRef)
+	if err != nil {
+		return "", err
+	}
+	if path, err := k.table.GetResourcePathPreferRaster(id, resConfig); err == nil {
+		return path, nil
+	}
+	value, err := k.table.GetResource(id, resConfig)
+	if err != nil {
+		return "", err
+	}
+	path, ok := value.(string)
+	if !ok {
+		return "", fmt.Errorf("apk: resource %s is not a file path (type %T)", resRef, value)
+	}
+	return path, nil
+}
+
+func (k *Apk) loadDrawable(path string, resConfig *androidbinary.ResTableConfig) (image.Image, string, error) {
+	imgData, err := k.readZipFile(path)
 	if err != nil {
 		return nil, "", err
 	}
 
-	if strings.HasSuffix(iconPath, ".xml") {
-		xmlFile, err := androidbinary.NewXMLFile(bytes.NewReader(imgData))
+	if !strings.HasSuffix(path, ".xml") {
+		return k.decodeRaster(imgData)
+	}
+
+	xmlFile, err := androidbinary.NewXMLFile(bytes.NewReader(imgData))
+	if err != nil {
+		return nil, "", err
+	}
+	xmlContent, err := ioutil.ReadAll(xmlFile.Reader())
+	if err != nil {
+		return nil, "", err
+	}
+	content := string(xmlContent)
+
+	if strings.Contains(content, "<adaptive-icon") {
+		foreground := regexp.MustCompile(`foreground[^>]*drawable="([^"]+)"`).FindStringSubmatch(content)
+		if len(foreground) < 2 {
+			return nil, "", newError("adaptive-icon has no foreground drawable")
+		}
+		foregroundPath, err := k.resolveResPath(foreground[1], resConfig)
 		if err != nil {
 			return nil, "", err
 		}
-
-		allData, err := ioutil.ReadAll(xmlFile.Reader())
-		if err != nil {
-			return nil, "", err
-		}
-
-		svg, err := k.ConvertXMLToSVG(string(allData))
-		return nil, svg, err
+		return k.loadDrawable(foregroundPath, resConfig)
 	}
 
-	m, imageType, err := image.Decode(bytes.NewReader(imgData))
-	if imageType == "webp" && err != nil {
-		m, err = webp.Decode(bytes.NewReader(imgData))
+	fmt.Println("convert xml to svg")
+	svg, err := k.ConvertXMLToSVG(content)
+	if err != nil {
+		return nil, "", err
+	}
+	if svg == "" {
+		return nil, "", newError("unable to convert drawable xml to svg")
+	}
+	fmt.Println("rasterize svg")
+	img, err := rasterizeSVG(svg)
+	if err != nil {
+		return nil, "", err
 	}
 
-	return m, "", err
+	return img, "", nil
 }
 
-// Icon returns the icon image of the APK.
-func (k *Apk) Icon(resConfig *androidbinary.ResTableConfig) (image.Image, error) {
-	iconPath, err := k.manifest.App.Icon.WithResTableConfig(resConfig).String()
-	if err != nil {
-		return nil, err
-	}
-
-	if androidbinary.IsResID(iconPath) {
-		return nil, newError("unable to convert icon-id to icon path")
-	}
-	imgData, err := k.readZipFile(iconPath)
-	if err != nil {
-		return nil, err
-	}
-	m, image_type, err := image.Decode(bytes.NewReader(imgData))
-	if image_type == "webp" && err != nil {
+func (k *Apk) decodeRaster(imgData []byte) (image.Image, string, error) {
+	m, imageType, err := image.Decode(bytes.NewReader(imgData))
+	if err != nil && (imageType == "webp" || imageType == "") {
 		m, err = webp.Decode(bytes.NewReader(imgData))
 	}
-	return m, err
+	return m, "", err
 }
 
 // Label returns the label of the APK.

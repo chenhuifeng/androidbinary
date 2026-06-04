@@ -1,0 +1,51 @@
+# Binaries and build output
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+/bin/
+/dist/
+/apk/out/
+/apk/cmd/**/out/
+
+# Go workspace (optional local module experiments)
+go.work
+go.work.sum
+
+# Dependency vendoring (uncomment if you vendor locally)
+# vendor/
+
+# Test and coverage artifacts
+coverage.txt
+coverage.html
+*.prof
+*.pprof
+
+# IDE — JetBrains / GoLand
+.idea/
+*.iml
+
+# IDE — VS Code
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor backups
+*~
+*.swp
+*.swo
+
+# Unpacked APK fixture trees (keep archive fixtures: *.apk, *.zip, *.xapk)
+apk/testdata/*
+!apk/testdata/*.apk
+!apk/testdata/*.zip
+!apk/testdata/*.xapk
+
+# Local env / secrets
+.env
+.env.*

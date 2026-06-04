@@ -21,7 +21,8 @@ func main() {
 	pkg, _ := apk.OpenFile("your-android-app.apk")
 	defer pkg.Close()
 
-	icon, _ := pkg.Icon(nil) // returns the icon of APK as image.Image
+	icon, _, _ := pkg.Icon(nil) // icon as image.Image (vector/adaptive icons are rasterized)
+	banner, _, _ := pkg.Banner(nil) // TV banner as image.Image (vector banners are rasterized)
 	pkgName := pkg.PackageName() // returns the package name
 
 	resConfigEN := &androidbinary.ResTableConfig{

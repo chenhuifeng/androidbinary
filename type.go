@@ -296,6 +296,11 @@ func (v String) MarshalXMLAttr(name xml.Name) (xml.Attr, error) {
 	}, nil
 }
 
+// Ref returns the raw attribute value before resource resolution.
+func (v String) Ref() string {
+	return v.value
+}
+
 // String returns the string value.
 // It resolves the reference if needed.
 func (v String) String() (string, error) {
