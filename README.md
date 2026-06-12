@@ -102,6 +102,12 @@ value, _ := tf.GetResource(resID, nil)
 
 ## Changelog
 
+### v2.0.3
+
+- Adaptive-icon: composite background (gradient) + foreground with vector `<group>` transforms
+- Banner vector drawables rasterize at **320×180** (Android TV banner); icons at **192×192**
+- Raster PNG/WebP icons and banners keep native decoded dimensions
+
 ### v2.0.2
 
 - Fix Go module path: `github.com/chenhuifeng/androidbinary/v2` (required for `go get` v2.x)

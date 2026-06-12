@@ -97,7 +97,7 @@ func (k *Apk) Banner(resConfig *androidbinary.ResTableConfig) (image.Image, stri
 		return nil, "", newError("unable to convert banner-id to banner path")
 	}
 
-	return k.loadDrawable(bannerPath, resConfig)
+	return k.loadDrawable(bannerPath, resConfig, sizeBanner)
 }
 
 // Icon returns the app icon (android:icon only) as a raster image.
@@ -125,7 +125,7 @@ func (k *Apk) Icon(resConfig *androidbinary.ResTableConfig) (image.Image, string
 	if androidbinary.IsResID(iconPath) {
 		return nil, "", newError("unable to convert icon-id to icon path")
 	}
-	return k.loadDrawable(iconPath, resConfig)
+	return k.loadDrawable(iconPath, resConfig, sizeIcon)
 }
 
 func (k *Apk) drawablePath(attr androidbinary.String, resConfig *androidbinary.ResTableConfig) (string, error) {
@@ -165,7 +165,7 @@ func (k *Apk) resolveResPath(resRef string, resConfig *androidbinary.ResTableCon
 	return path, nil
 }
 
-func (k *Apk) loadDrawable(path string, resConfig *androidbinary.ResTableConfig) (image.Image, string, error) {
+func (k *Apk) loadDrawable(path string, resConfig *androidbinary.ResTableConfig, target renderSize) (image.Image, string, error) {
 	imgData, err := k.readZipFile(path)
 	if err != nil {
 		return nil, "", err
@@ -186,18 +186,17 @@ func (k *Apk) loadDrawable(path string, resConfig *androidbinary.ResTableConfig)
 	content := string(xmlContent)
 
 	if strings.Contains(content, "<adaptive-icon") {
-		foreground := regexp.MustCompile(`foreground[^>]*drawable="([^"]+)"`).FindStringSubmatch(content)
-		if len(foreground) < 2 {
-			return nil, "", newError("adaptive-icon has no foreground drawable")
-		}
-		foregroundPath, err := k.resolveResPath(foreground[1], resConfig)
-		if err != nil {
-			return nil, "", err
-		}
-		return k.loadDrawable(foregroundPath, resConfig)
+		return k.loadAdaptiveIcon(content, resConfig, target)
 	}
 
-	fmt.Println("convert xml to svg")
+	if strings.Contains(content, "<gradient") {
+		if !target.valid() {
+			target = sizeIcon
+		}
+		img, err := renderGradientShape(content, target.width, target.height)
+		return img, "", err
+	}
+
 	svg, err := k.ConvertXMLToSVG(content)
 	if err != nil {
 		return nil, "", err
@@ -205,8 +204,10 @@ func (k *Apk) loadDrawable(path string, resConfig *androidbinary.ResTableConfig)
 	if svg == "" {
 		return nil, "", newError("unable to convert drawable xml to svg")
 	}
-	fmt.Println("rasterize svg")
-	img, err := rasterizeSVG(svg)
+	if !target.valid() {
+		target = sizeIcon
+	}
+	img, err := rasterizeSVG(svg, target)
 	if err != nil {
 		return nil, "", err
 	}
@@ -365,6 +366,8 @@ func (k *Apk) ConvertXMLToSVG(xmlContent string) (string, error) {
 	pathBlock := ""
 	matchPathLines := regexp.MustCompile(`(<path.*?</path>)`).FindAllString(xmlContent, -1)
 
+	groupTransform := vectorGroupTransform(xmlContent)
+
 	for _, line := range matchPathLines {
 		fill := "#ffffff"
 		matchFillColor := regexp.MustCompile(`android:fillColor="(.*?)"`).FindStringSubmatch(line)
@@ -422,10 +425,62 @@ func (k *Apk) ConvertXMLToSVG(xmlContent string) (string, error) {
 
 	svgContent := ""
 	svgContent += fmt.Sprintf("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 %s %s\" >\n", viewBoxWidth, viewBoxHeight)
-	svgContent += fmt.Sprintf(pathBlock)
-	svgContent += fmt.Sprintf("</svg>")
+	if groupTransform != "" {
+		svgContent += fmt.Sprintf("<g transform=\"%s\">\n", groupTransform)
+	}
+	svgContent += pathBlock
+	if groupTransform != "" {
+		svgContent += "</g>\n"
+	}
+	svgContent += "</svg>"
 
 	return svgContent, nil
+}
+
+func vectorGroupTransform(xmlContent string) string {
+	groupRe := regexp.MustCompile(`<group([^>]*)>`)
+	m := groupRe.FindStringSubmatch(xmlContent)
+	if len(m) < 2 {
+		return ""
+	}
+	attrs := m[1]
+	sx, sxOk := vectorAttrFloat(attrs, "scaleX")
+	sy, syOk := vectorAttrFloat(attrs, "scaleY")
+	tx, txOk := vectorAttrFloat(attrs, "translateX")
+	ty, tyOk := vectorAttrFloat(attrs, "translateY")
+	if !sxOk {
+		sx = 1
+	}
+	if !syOk {
+		sy = 1
+	}
+	if !txOk {
+		tx = 0
+	}
+	if !tyOk {
+		ty = 0
+	}
+	if sx == 1 && sy == 1 && tx == 0 && ty == 0 {
+		return ""
+	}
+	return fmt.Sprintf("translate(%g,%g) scale(%g,%g)", tx, ty, sx, sy)
+}
+
+func vectorAttrFloat(attrs, name string) (float32, bool) {
+	re := regexp.MustCompile(name + `="([^"]+)"`)
+	m := re.FindStringSubmatch(attrs)
+	if len(m) < 2 || !strings.Contains(m[1], "0x") {
+		return 0, false
+	}
+	return parseHexFloat(m[1]), true
+}
+
+func parseHexFloat(ref string) float32 {
+	ref = strings.TrimPrefix(ref, "@")
+	if !strings.HasPrefix(ref, "0x") {
+		return 0
+	}
+	return hexToFloat32(ref)
 }
 
 func hexToFloat32(hexStr string) float32 {

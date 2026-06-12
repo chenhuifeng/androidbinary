@@ -13,19 +13,22 @@ import (
 
 var svgViewBoxRe = regexp.MustCompile(`viewBox="0 0 (\d+) (\d+)"`)
 
-func rasterizeSVG(svg string) (image.Image, error) {
+func rasterizeSVG(svg string, target renderSize) (image.Image, error) {
 	icon, err := oksvg.ReadIconStream(bytes.NewBufferString(svg))
 	if err != nil {
 		return nil, fmt.Errorf("apk: parse svg: %w", err)
 	}
 
-	w, h := svgSize(svg)
-	if icon.ViewBox.W > 0 && icon.ViewBox.H > 0 {
-		w = int(icon.ViewBox.W)
-		h = int(icon.ViewBox.H)
+	w, h := target.width, target.height
+	if !target.valid() {
+		w, h = svgSize(svg)
+		if icon.ViewBox.W > 0 && icon.ViewBox.H > 0 {
+			w = int(icon.ViewBox.W)
+			h = int(icon.ViewBox.H)
+		}
 	}
 	if w <= 0 || h <= 0 {
-		w, h = 108, 108
+		w, h = sizeIcon.width, sizeIcon.height
 	}
 
 	icon.SetTarget(0, 0, float64(w), float64(h))
