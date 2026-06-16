@@ -102,6 +102,11 @@ value, _ := tf.GetResource(resID, nil)
 
 ## Changelog
 
+### v2.0.4
+
+- XAPK / App Bundle split APK support: merge `resources.arsc` from split config APKs (e.g. `config.xhdpi.apk`)
+- Read drawable files across base + split zips; fallback to xapk `manifest.json` `icon` field
+
 ### v2.0.3
 
 - Adaptive-icon: composite background (gradient) + foreground with vector `<group>` transforms

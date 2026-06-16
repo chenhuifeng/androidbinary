@@ -22,10 +22,13 @@ import (
 
 // Apk is an application package file for android.
 type Apk struct {
-	f         *os.File
-	zipreader *zip.Reader
-	manifest  Manifest
-	table     *androidbinary.TableFile
+	f            *os.File
+	zipreader    *zip.Reader
+	splits       []splitApk
+	containerZip *zip.Reader
+	xapkIcon     string
+	manifest     Manifest
+	table        *androidbinary.TableFile
 }
 
 // OpenFile opens an APK file or a zip/xapk container (e.g. disney.zip, Emby.xapk) that embeds a base APK.
@@ -106,6 +109,9 @@ func (k *Apk) Banner(resConfig *androidbinary.ResTableConfig) (image.Image, stri
 func (k *Apk) Icon(resConfig *androidbinary.ResTableConfig) (image.Image, string, error) {
 	iconPath, err := k.drawablePath(k.manifest.App.Icon, resConfig)
 	if err != nil {
+		if img, ierr := k.loadXapkIcon(); ierr == nil && img != nil {
+			return img, "", nil
+		}
 		return nil, "", err
 	}
 
@@ -113,19 +119,31 @@ func (k *Apk) Icon(resConfig *androidbinary.ResTableConfig) (image.Image, string
 		if len(k.manifest.App.Activities) > 0 {
 			iconPath, err = k.drawablePath(k.manifest.App.Activities[0].Icon, resConfig)
 			if err != nil {
+				if img, ierr := k.loadXapkIcon(); ierr == nil && img != nil {
+					return img, "", nil
+				}
 				return nil, "", err
 			}
 		}
 	}
 
 	if iconPath == "" {
+		if img, ierr := k.loadXapkIcon(); ierr == nil && img != nil {
+			return img, "", nil
+		}
 		return nil, "", nil
 	}
 
 	if androidbinary.IsResID(iconPath) {
 		return nil, "", newError("unable to convert icon-id to icon path")
 	}
-	return k.loadDrawable(iconPath, resConfig, sizeIcon)
+	img, svg, err := k.loadDrawable(iconPath, resConfig, sizeIcon)
+	if err != nil || img == nil {
+		if fallback, ierr := k.loadXapkIcon(); ierr == nil && fallback != nil {
+			return fallback, "", nil
+		}
+	}
+	return img, svg, err
 }
 
 func (k *Apk) drawablePath(attr androidbinary.String, resConfig *androidbinary.ResTableConfig) (string, error) {
@@ -136,9 +154,21 @@ func (k *Apk) drawablePath(attr androidbinary.String, resConfig *androidbinary.R
 		if err != nil {
 			return "", err
 		}
-		if path, err := k.table.GetResourcePathPreferRaster(id, resConfig); err == nil {
+		if path, err := k.getResourcePathPreferRaster(id, resConfig); err == nil {
 			return path, nil
 		}
+		value, err := k.getResource(id, resConfig)
+		if err != nil {
+			return "", err
+		}
+		path, ok := value.(string)
+		if !ok {
+			return "", fmt.Errorf("apk: resource %s is not a file path (type %T)", ref, value)
+		}
+		return path, nil
+	}
+	if ref != "" {
+		return ref, nil
 	}
 	return attr.String()
 }
@@ -151,10 +181,10 @@ func (k *Apk) resolveResPath(resRef string, resConfig *androidbinary.ResTableCon
 	if err != nil {
 		return "", err
 	}
-	if path, err := k.table.GetResourcePathPreferRaster(id, resConfig); err == nil {
+	if path, err := k.getResourcePathPreferRaster(id, resConfig); err == nil {
 		return path, nil
 	}
-	value, err := k.table.GetResource(id, resConfig)
+	value, err := k.getResource(id, resConfig)
 	if err != nil {
 		return "", err
 	}
@@ -326,22 +356,17 @@ func (k *Apk) parseResources() (err error) {
 }
 
 func (k *Apk) readZipFile(name string) (data []byte, err error) {
-	buf := bytes.NewBuffer(nil)
-	for _, file := range k.zipreader.File {
-		if file.Name != name {
-			continue
+	for _, zr := range k.allZipReaders() {
+		data, err = readZipFileFrom(zr, name)
+		if err == nil {
+			return data, nil
 		}
-		rc, er := file.Open()
-		if er != nil {
-			err = er
-			return
+	}
+	if k.containerZip != nil {
+		data, err = readZipFileFrom(k.containerZip, name)
+		if err == nil {
+			return data, nil
 		}
-		defer rc.Close()
-		_, err = io.Copy(buf, rc)
-		if err != nil {
-			return
-		}
-		return buf.Bytes(), nil
 	}
 	return nil, fmt.Errorf("apk: file %q not found", name)
 }

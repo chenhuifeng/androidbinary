@@ -163,5 +163,12 @@ func openFromReaderAt(r io.ReaderAt, size int64) (*Apk, error) {
 	if !zipHasFile(inner, "AndroidManifest.xml") {
 		return nil, fmt.Errorf("apk: %s is not a valid APK", entry.Name)
 	}
-	return newApkFromZip(inner)
+	apk, err := newApkFromZip(inner)
+	if err != nil {
+		return nil, err
+	}
+	if err := apk.loadContainerExtras(zr); err != nil {
+		return nil, err
+	}
+	return apk, nil
 }

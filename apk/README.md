@@ -10,7 +10,7 @@ High-level API for reading APK metadata and extracting launcher icon and TV bann
 |-------|---------|----------|
 | Standard APK | `app.apk` | Root contains `AndroidManifest.xml` |
 | Zip bundle | `disney.zip` | Finds `base.apk` or largest `.apk` with `resources.arsc` |
-| XAPK | `Emby.xapk` | Reads `manifest.json` base split, or skips `config.*.apk` / `split_*.apk` |
+| XAPK (split) | `com.jakob.speedtest.xapk` | Base APK + split config APKs; fallback to root `icon.png` |
 
 ## Icon and Banner
 

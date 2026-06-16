@@ -14,6 +14,30 @@ func requireFixture(t *testing.T, path string) {
 	}
 }
 
+func TestOpenFileSplitXapk(t *testing.T) {
+	const path = "testdata/com.jakob.speedtest-1.25.08.13.1.xapk"
+	requireFixture(t, path)
+
+	apk, err := OpenFile(path)
+	if err != nil {
+		t.Fatalf("OpenFile speedtest xapk: %v", err)
+	}
+	defer apk.Close()
+
+	if apk.PackageName() != "com.jakob.speedtest" {
+		t.Errorf("PackageName: got %s", apk.PackageName())
+	}
+
+	icon, _, err := apk.Icon(nil)
+	if err != nil || icon == nil {
+		t.Fatalf("Icon from speedtest xapk: err=%v icon=%v", err, icon)
+	}
+	b := icon.Bounds()
+	if b.Dx() == 0 || b.Dy() == 0 {
+		t.Errorf("Icon has empty bounds: %v", b)
+	}
+}
+
 func TestOpenFileXapk(t *testing.T) {
 	const path = "testdata/Emby.xapk"
 	requireFixture(t, path)
