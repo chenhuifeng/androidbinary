@@ -102,6 +102,11 @@ value, _ := tf.GetResource(resID, nil)
 
 ## Changelog
 
+### v2.0.5
+
+- Vector drawable SVG conversion: resolve `fillColor` / `strokeColor` from `resources.arsc` (including gradient drawables)
+- Emit SVG `<linearGradient>` defs for gradient fills; fix `hexToFloat32` parsing with `@` prefix
+
 ### v2.0.4
 
 - XAPK / App Bundle split APK support: merge `resources.arsc` from split config APKs (e.g. `config.xhdpi.apk`)

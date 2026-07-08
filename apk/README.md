@@ -27,7 +27,7 @@ High-level API for reading APK metadata and extracting launcher icon and TV bann
 
 - Reads `android:banner` on `<application>`, then first `<activity>` if empty
 - Does **not** fall back to `Icon` when banner is missing
-- Vector/shape banners rasterize at **320×180**; PNG/WebP keep native size
+- Vector/shape banners rasterize at **320×180**; gradient and theme color refs resolved from `resources.arsc`
 - If no banner: `(nil, "", nil)`
 
 ### Save as PNG

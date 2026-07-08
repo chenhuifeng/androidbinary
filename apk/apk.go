@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"image"
+	"image/color"
 	"io"
 	"io/ioutil"
 	"math"
@@ -227,7 +228,7 @@ func (k *Apk) loadDrawable(path string, resConfig *androidbinary.ResTableConfig,
 		return img, "", err
 	}
 
-	svg, err := k.ConvertXMLToSVG(content)
+	svg, err := k.ConvertXMLToSVG(content, resConfig)
 	if err != nil {
 		return nil, "", err
 	}
@@ -371,7 +372,7 @@ func (k *Apk) readZipFile(name string) (data []byte, err error) {
 	return nil, fmt.Errorf("apk: file %q not found", name)
 }
 
-func (k *Apk) ConvertXMLToSVG(xmlContent string) (string, error) {
+func (k *Apk) ConvertXMLToSVG(xmlContent string, resConfig *androidbinary.ResTableConfig) (string, error) {
 	viewBoxWidth := "0"
 	viewBoxHeight := "0"
 
@@ -389,67 +390,44 @@ func (k *Apk) ConvertXMLToSVG(xmlContent string) (string, error) {
 	}
 
 	pathBlock := ""
+	gradientDefs := ""
 	matchPathLines := regexp.MustCompile(`(<path.*?</path>)`).FindAllString(xmlContent, -1)
 
 	groupTransform := vectorGroupTransform(xmlContent)
 
 	for _, line := range matchPathLines {
-		fill := "#ffffff"
-		matchFillColor := regexp.MustCompile(`android:fillColor="(.*?)"`).FindStringSubmatch(line)
-		if len(matchFillColor) > 1 {
-			if len(matchFillColor[1]) > 7 && strings.HasPrefix(matchFillColor[1], "@0xFF") {
-				fill = "#" + strings.TrimPrefix(matchFillColor[1], "@0xFF")
-			}
+		fillPaint := k.resolveSVGPaint(attrValue(line, "fillColor"), resConfig, "fill")
+		if fillPaint.attr == "" {
+			fillPaint = solidPaint("fill", color.RGBA{R: 255, G: 255, B: 255, A: 255})
+		}
+		gradientDefs += fillPaint.defs
+
+		pathData := attrValue(line, "pathData")
+		pathBlock += fmt.Sprintf("<path %s d=\"%s\"", fillPaint.attr, pathData)
+
+		if strokeOpacity := attrOpacity(line, "strokeAlpha"); strokeOpacity != "" {
+			pathBlock += " " + strokeOpacity
+		}
+		if fillOpacity := attrOpacity(line, "fillAlpha"); fillOpacity != "" {
+			pathBlock += " " + fillOpacity
+		}
+		if strokeWidth := attrDimension(line, "strokeWidth"); strokeWidth != "" {
+			pathBlock += " " + strokeWidth
 		}
 
-		pathData := ""
-		matchPathData := regexp.MustCompile(`android:pathData="(.*?)"`).FindStringSubmatch(line)
-		if len(matchPathData) > 1 {
-			pathData = matchPathData[1]
-		}
-		pathBlock += fmt.Sprintf("<path fill=\"%s\" d=\"%s\" ", fill, pathData)
-
-		strokeOpacity := `` // stroke-opacity="0.0"
-		matchStrokeAlpha := regexp.MustCompile(`android:strokeAlpha="@(.*?)"`).FindStringSubmatch(line)
-		if len(matchStrokeAlpha) > 1 {
-			strokeOpacity = fmt.Sprintf(`stroke-opacity="%.1f"`, hexToFloat32(matchStrokeAlpha[1]))
-		}
-
-		if strokeOpacity != "" {
-			pathBlock += " " + strokeOpacity + " "
-		}
-
-		fillOpacity := `` // fill-opacity="0.0"
-		matchFillOpacity := regexp.MustCompile(`android:fillAlpha="@(.*?)"`).FindStringSubmatch(line)
-		if len(matchFillOpacity) > 1 {
-			fillOpacity = fmt.Sprintf(`fill-opacity="%.1f"`, hexToFloat32(matchFillOpacity[1]))
-		}
-		if fillOpacity != "" {
-			pathBlock += " " + fillOpacity + " "
-		}
-
-		strokeWidth := `` // stroke-width="1.0"
-		matchStrokeWidth := regexp.MustCompile(`android:strokeWidth="@(.*?)"`).FindStringSubmatch(line)
-		if len(matchStrokeWidth) > 1 {
-			strokeWidth = fmt.Sprintf(`stroke-width="%.1f"`, hexToFloat32(matchStrokeWidth[1]))
-		}
-		if strokeWidth != "" {
-			pathBlock += " " + strokeWidth + " "
-		}
-
-		stroke := `` // stroke="#000000ff"
-		matchStrokeColor := regexp.MustCompile(`android:strokeColor="@(.*?)"`).FindStringSubmatch(line)
-		if len(matchStrokeColor) > 1 {
-			stroke = fmt.Sprintf(`stroke="%s"`, "#"+strings.TrimPrefix(matchStrokeColor[1], "0xFF"))
-		}
-		if stroke != "" {
-			pathBlock += " " + stroke + " "
+		strokePaint := k.resolveSVGPaint(attrValue(line, "strokeColor"), resConfig, "stroke")
+		gradientDefs += strokePaint.defs
+		if strokePaint.attr != "" && !strings.Contains(strokePaint.attr, `="none"`) {
+			pathBlock += " " + strokePaint.attr
 		}
 		pathBlock += " />\n"
 	}
 
 	svgContent := ""
 	svgContent += fmt.Sprintf("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 %s %s\" >\n", viewBoxWidth, viewBoxHeight)
+	if gradientDefs != "" {
+		svgContent += "<defs>" + gradientDefs + "</defs>\n"
+	}
 	if groupTransform != "" {
 		svgContent += fmt.Sprintf("<g transform=\"%s\">\n", groupTransform)
 	}
@@ -460,6 +438,35 @@ func (k *Apk) ConvertXMLToSVG(xmlContent string) (string, error) {
 	svgContent += "</svg>"
 
 	return svgContent, nil
+}
+
+func attrValue(line, name string) string {
+	re := regexp.MustCompile(name + `="([^"]+)"`)
+	m := re.FindStringSubmatch(line)
+	if len(m) < 2 {
+		return ""
+	}
+	return m[1]
+}
+
+func attrOpacity(line, name string) string {
+	v := attrValue(line, name)
+	if v == "" || !strings.Contains(v, "0x") {
+		return ""
+	}
+	opacityAttr := "fill-opacity"
+	if strings.HasPrefix(name, "stroke") {
+		opacityAttr = "stroke-opacity"
+	}
+	return fmt.Sprintf(`%s="%.4f"`, opacityAttr, float64(hexToFloat32(v)))
+}
+
+func attrDimension(line, name string) string {
+	v := attrValue(line, name)
+	if v == "" || !strings.Contains(v, "0x") {
+		return ""
+	}
+	return fmt.Sprintf(`stroke-width="%.4f"`, float64(hexToFloat32(v)))
 }
 
 func vectorGroupTransform(xmlContent string) string {
@@ -509,11 +516,18 @@ func parseHexFloat(ref string) float32 {
 }
 
 func hexToFloat32(hexStr string) float32 {
-	// trim the prefix "0x"
+	hexStr = strings.TrimPrefix(hexStr, "@")
+	if !strings.HasPrefix(hexStr, "0x") {
+		return 0
+	}
 	hexStr = hexStr[2:]
-	// Converts hex string to []bytes
-	hBytes, _ := hex.DecodeString(hexStr)
-	// convert []bytes to float32
+	if len(hexStr) < 8 {
+		return 0
+	}
+	hBytes, err := hex.DecodeString(hexStr[:8])
+	if err != nil || len(hBytes) < 4 {
+		return 0
+	}
 	bits := uint32(hBytes[0])<<24 | uint32(hBytes[1])<<16 | uint32(hBytes[2])<<8 | uint32(hBytes[3])
 	return math.Float32frombits(bits)
 }

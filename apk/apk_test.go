@@ -58,6 +58,34 @@ func TestOpenFileXapk(t *testing.T) {
 	}
 }
 
+func TestOpenFileVectorBanner(t *testing.T) {
+	const path = "testdata/LiveUltra-v573.apk"
+	requireFixture(t, path)
+
+	apk, err := OpenFile(path)
+	if err != nil {
+		t.Fatalf("OpenFile LiveUltra: %v", err)
+	}
+	defer apk.Close()
+
+	icon, _, err := apk.Icon(nil)
+	if err != nil || icon == nil {
+		t.Fatalf("Icon: err=%v", err)
+	}
+
+	banner, _, err := apk.Banner(nil)
+	if err != nil {
+		t.Fatalf("Banner: %v", err)
+	}
+	if banner == nil {
+		t.Fatal("Banner is nil")
+	}
+	b := banner.Bounds()
+	if b.Dx() != 320 || b.Dy() != 180 {
+		t.Errorf("Banner size want 320x180, got %dx%d", b.Dx(), b.Dy())
+	}
+}
+
 func TestOpenFileZipContainer(t *testing.T) {
 	const path = "testdata/disney.zip"
 	requireFixture(t, path)
