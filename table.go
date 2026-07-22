@@ -313,16 +313,36 @@ func (f *TableFile) GetResource(id ResID, config *ResTableConfig) (interface{}, 
 // GetResourcePathPreferRaster resolves a resource to a file path, preferring
 // bitmap mipmaps (e.g. mipmap-xxxhdpi/*.png) over adaptive/vector XML.
 func (f *TableFile) GetResourcePathPreferRaster(id ResID, config *ResTableConfig) (string, error) {
+	paths := f.ListRasterResourcePaths(id, config)
+	if len(paths) == 0 {
+		return "", fmt.Errorf("androidbinary: no raster resource for %s", id)
+	}
+	best := paths[0]
+	for _, p := range paths[1:] {
+		if p.Density >= best.Density {
+			best = p
+		}
+	}
+	return best.Path, nil
+}
+
+// RasterResourcePath is a density-qualified bitmap resource path.
+type RasterResourcePath struct {
+	Path    string
+	Density uint16
+}
+
+// ListRasterResourcePaths returns all matching bitmap resource paths for id.
+func (f *TableFile) ListRasterResourcePaths(id ResID, config *ResTableConfig) []RasterResourcePath {
 	p := f.findPackage(id.Package())
 	if p == nil {
-		return "", fmt.Errorf("androidbinary: package 0x%02X not found", id.Package())
+		return nil
 	}
 
 	typeIndex := id.Type()
 	entryIndex := id.Entry()
-
-	var bestPath string
-	var bestDensity uint16
+	seen := map[string]bool{}
+	var out []RasterResourcePath
 
 	for _, t := range p.TableTypes {
 		if int(t.Header.ID) != typeIndex {
@@ -335,20 +355,16 @@ func (f *TableFile) GetResourcePathPreferRaster(id ResID, config *ResTableConfig
 			continue
 		}
 		path, err := f.entryFilePath(t.Entries[entryIndex].Value, config)
-		if err != nil || !isRasterResourcePath(path) {
+		if err != nil || !isRasterResourcePath(path) || seen[path] {
 			continue
 		}
-		density := t.Header.Config.Density
-		if bestPath == "" || density >= bestDensity {
-			bestDensity = density
-			bestPath = path
-		}
+		seen[path] = true
+		out = append(out, RasterResourcePath{
+			Path:    path,
+			Density: t.Header.Config.Density,
+		})
 	}
-
-	if bestPath != "" {
-		return bestPath, nil
-	}
-	return "", fmt.Errorf("androidbinary: no raster resource for %s", id)
+	return out
 }
 
 func (f *TableFile) entryFilePath(v *ResValue, config *ResTableConfig) (string, error) {

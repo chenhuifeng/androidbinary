@@ -18,9 +18,10 @@ High-level API for reading APK metadata and extracting launcher icon and TV bann
 
 - Reads `android:icon` on `<application>`, then first `<activity>` if empty
 - Returns `(image.Image, string, error)` — second value is reserved (empty for raster output)
-- **Raster first**: walks `resources.arsc` and picks the highest-density mipmap PNG/WebP
-- **Fallback**: adaptive-icon XML → background + foreground composite; vector → SVG → rasterize
+- **Raster first**: walks `resources.arsc` and picks the highest-density **square** mipmap PNG/WebP when available
+- **Fallback**: adaptive-icon XML → background + foreground composite; vector → SVG → rasterize; `<layer-list>` / `<bitmap>` wrappers followed
 - Vector/adaptive icons rasterize at **192×192**; mipmap PNG/WebP keep native size
+- If icon and banner are the same wide asset, icon is left uncropped
 - If no icon is configured: `(nil, "", nil)` — not an error
 
 ### `Banner(resConfig)`
@@ -28,6 +29,7 @@ High-level API for reading APK metadata and extracting launcher icon and TV bann
 - Reads `android:banner` on `<application>`, then first `<activity>` if empty
 - Does **not** fall back to `Icon` when banner is missing
 - Vector/shape banners rasterize at **320×180**; gradient and theme color refs resolved from `resources.arsc`
+- Supports `<layer-list>` / `<bitmap>` wrappers
 - If no banner: `(nil, "", nil)`
 
 ### Save as PNG

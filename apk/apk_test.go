@@ -58,6 +58,104 @@ func TestOpenFileXapk(t *testing.T) {
 	}
 }
 
+func TestOpenFileTVIconSameAsBannerNoCrop(t *testing.T) {
+	const path = "testdata/de.sky.online-5.8.1-AndroidTV-DE.apk"
+	requireFixture(t, path)
+
+	apk, err := OpenFile(path)
+	if err != nil {
+		t.Fatalf("OpenFile Sky TV: %v", err)
+	}
+	defer apk.Close()
+
+	icon, _, err := apk.Icon(nil)
+	if err != nil || icon == nil {
+		t.Fatalf("Icon: err=%v", err)
+	}
+	banner, _, err := apk.Banner(nil)
+	if err != nil || banner == nil {
+		t.Fatalf("Banner: err=%v", err)
+	}
+
+	ib, bb := icon.Bounds(), banner.Bounds()
+	// Same wide asset: do not center-crop the icon.
+	if ib.Dx() != bb.Dx() || ib.Dy() != bb.Dy() {
+		t.Errorf("Icon should keep banner size when same asset, icon=%dx%d banner=%dx%d",
+			ib.Dx(), ib.Dy(), bb.Dx(), bb.Dy())
+	}
+	if ib.Dx() <= ib.Dy() {
+		t.Errorf("Icon should remain wide (not cropped), got %dx%d", ib.Dx(), ib.Dy())
+	}
+}
+
+func TestOpenFileSquareIconNotBanner(t *testing.T) {
+	const path = "testdata/com.digiturk.iq.mobil-1.25.1.apk"
+	requireFixture(t, path)
+
+	apk, err := OpenFile(path)
+	if err != nil {
+		t.Fatalf("OpenFile Digitürk: %v", err)
+	}
+	defer apk.Close()
+
+	icon, _, err := apk.Icon(nil)
+	if err != nil || icon == nil {
+		t.Fatalf("Icon: err=%v", err)
+	}
+	ib := icon.Bounds()
+	if ib.Dx() != ib.Dy() {
+		t.Errorf("Icon should be square, got %dx%d", ib.Dx(), ib.Dy())
+	}
+
+	banner, _, err := apk.Banner(nil)
+	if err != nil || banner == nil {
+		t.Fatalf("Banner: err=%v", err)
+	}
+	bb := banner.Bounds()
+	if bb.Dx() == bb.Dy() {
+		t.Errorf("Banner should be wide, got %dx%d", bb.Dx(), bb.Dy())
+	}
+	if ib.Dx() == bb.Dx() && ib.Dy() == bb.Dy() {
+		t.Fatal("Icon and Banner must not be the same image size")
+	}
+}
+
+func TestOpenFileLayerListBanner(t *testing.T) {
+	const path = "testdata/com.skyshowtime.skyshowtime.google-1.9.96.apk"
+	requireFixture(t, path)
+
+	apk, err := OpenFile(path)
+	if err != nil {
+		t.Fatalf("OpenFile Showtime: %v", err)
+	}
+	defer apk.Close()
+
+	banner, _, err := apk.Banner(nil)
+	if err != nil {
+		t.Fatalf("Banner: %v", err)
+	}
+	if banner == nil {
+		t.Fatal("Banner is nil")
+	}
+	b := banner.Bounds()
+	if b.Dx() == 0 || b.Dy() == 0 {
+		t.Fatalf("Banner has empty bounds: %v", b)
+	}
+	// Must not be a fully transparent blank image.
+	opaque := 0
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			_, _, _, a := banner.At(x, y).RGBA()
+			if a != 0 {
+				opaque++
+			}
+		}
+	}
+	if opaque == 0 {
+		t.Fatal("Banner is fully transparent (blank)")
+	}
+}
+
 func TestOpenFileVectorBanner(t *testing.T) {
 	const path = "testdata/LiveUltra-v573.apk"
 	requireFixture(t, path)

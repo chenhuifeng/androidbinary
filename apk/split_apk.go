@@ -123,6 +123,82 @@ func (k *Apk) getResourcePathPreferRaster(id androidbinary.ResID, config *androi
 	return "", fmt.Errorf("androidbinary: no raster resource for %s", id)
 }
 
+// getResourcePathPreferSquareRaster prefers roughly square icons over banner-shaped
+// assets that some APKs incorrectly ship under android:icon density folders.
+func (k *Apk) getResourcePathPreferSquareRaster(id androidbinary.ResID, config *androidbinary.ResTableConfig) (string, error) {
+	candidates := k.listRasterResourcePaths(id, config)
+	if len(candidates) == 0 {
+		return "", fmt.Errorf("androidbinary: no raster resource for %s", id)
+	}
+
+	type scored struct {
+		path     string
+		density  uint16
+		aspect   float64 // |w/h - 1|, lower is better
+		area     int
+	}
+	var best *scored
+	for _, c := range candidates {
+		data, err := k.readZipFile(c.Path)
+		if err != nil {
+			continue
+		}
+		cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
+		if err != nil || cfg.Width <= 0 || cfg.Height <= 0 {
+			continue
+		}
+		aspect := float64(cfg.Width) / float64(cfg.Height)
+		if aspect < 1 {
+			aspect = 1 / aspect
+		}
+		deviation := aspect - 1 // 0 = perfect square
+		s := scored{
+			path:    c.Path,
+			density: c.Density,
+			aspect:  deviation,
+			area:    cfg.Width * cfg.Height,
+		}
+		if best == nil ||
+			s.aspect < best.aspect-0.05 || // meaningfully squarer
+			(absFloat(s.aspect-best.aspect) <= 0.05 && s.density >= best.density) {
+			cp := s
+			best = &cp
+		}
+	}
+	if best != nil {
+		return best.path, nil
+	}
+	return candidates[0].Path, nil
+}
+
+func (k *Apk) listRasterResourcePaths(id androidbinary.ResID, config *androidbinary.ResTableConfig) []androidbinary.RasterResourcePath {
+	var out []androidbinary.RasterResourcePath
+	seen := map[string]bool{}
+	appendUnique := func(paths []androidbinary.RasterResourcePath) {
+		for _, p := range paths {
+			if seen[p.Path] {
+				continue
+			}
+			seen[p.Path] = true
+			out = append(out, p)
+		}
+	}
+	if k.table != nil {
+		appendUnique(k.table.ListRasterResourcePaths(id, config))
+	}
+	for i := range k.splits {
+		appendUnique(k.splits[i].table.ListRasterResourcePaths(id, config))
+	}
+	return out
+}
+
+func absFloat(v float64) float64 {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
 func (k *Apk) loadXapkIcon() (image.Image, error) {
 	if k.containerZip == nil || k.xapkIcon == "" {
 		return nil, newError("no xapk icon")

@@ -108,7 +108,7 @@ func (k *Apk) Banner(resConfig *androidbinary.ResTableConfig) (image.Image, stri
 // Prefers mipmap PNG/WebP over adaptive-icon XML; falls back to vector rasterization when needed.
 // If the app has no icon, returns nil image and nil error.
 func (k *Apk) Icon(resConfig *androidbinary.ResTableConfig) (image.Image, string, error) {
-	iconPath, err := k.drawablePath(k.manifest.App.Icon, resConfig)
+	iconPath, err := k.drawablePathPreferSquare(k.manifest.App.Icon, resConfig)
 	if err != nil {
 		if img, ierr := k.loadXapkIcon(); ierr == nil && img != nil {
 			return img, "", nil
@@ -118,7 +118,7 @@ func (k *Apk) Icon(resConfig *androidbinary.ResTableConfig) (image.Image, string
 
 	if iconPath == "" {
 		if len(k.manifest.App.Activities) > 0 {
-			iconPath, err = k.drawablePath(k.manifest.App.Activities[0].Icon, resConfig)
+			iconPath, err = k.drawablePathPreferSquare(k.manifest.App.Activities[0].Icon, resConfig)
 			if err != nil {
 				if img, ierr := k.loadXapkIcon(); ierr == nil && img != nil {
 					return img, "", nil
@@ -143,8 +143,38 @@ func (k *Apk) Icon(resConfig *androidbinary.ResTableConfig) (image.Image, string
 		if fallback, ierr := k.loadXapkIcon(); ierr == nil && fallback != nil {
 			return fallback, "", nil
 		}
+		return img, svg, err
 	}
-	return img, svg, err
+	// Only crop wide icons when banner is a different asset.
+	skipCrop := k.iconSameAsBannerAsset(iconPath, resConfig)
+	return normalizeIconShape(img, skipCrop), svg, nil
+}
+
+func (k *Apk) drawablePathPreferSquare(attr androidbinary.String, resConfig *androidbinary.ResTableConfig) (string, error) {
+	attr = attr.WithResTableConfig(resConfig)
+	ref := attr.Ref()
+	if androidbinary.IsResID(ref) {
+		id, err := androidbinary.ParseResID(ref)
+		if err != nil {
+			return "", err
+		}
+		if path, err := k.getResourcePathPreferSquareRaster(id, resConfig); err == nil {
+			return path, nil
+		}
+		value, err := k.getResource(id, resConfig)
+		if err != nil {
+			return "", err
+		}
+		path, ok := value.(string)
+		if !ok {
+			return "", fmt.Errorf("apk: resource %s is not a file path (type %T)", ref, value)
+		}
+		return path, nil
+	}
+	if ref != "" {
+		return ref, nil
+	}
+	return attr.String()
 }
 
 func (k *Apk) drawablePath(attr androidbinary.String, resConfig *androidbinary.ResTableConfig) (string, error) {
@@ -218,6 +248,14 @@ func (k *Apk) loadDrawable(path string, resConfig *androidbinary.ResTableConfig,
 
 	if strings.Contains(content, "<adaptive-icon") {
 		return k.loadAdaptiveIcon(content, resConfig, target)
+	}
+
+	if isLayerList(content) {
+		return k.loadLayerListDrawable(content, resConfig, target)
+	}
+
+	if isBitmapDrawable(content) {
+		return k.loadBitmapDrawable(content, resConfig, target)
 	}
 
 	if strings.Contains(content, "<gradient") {

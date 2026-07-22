@@ -102,6 +102,12 @@ value, _ := tf.GetResource(resID, nil)
 
 ## Changelog
 
+### v2.0.6
+
+- Support `<layer-list>` / `<bitmap>` drawables (e.g. Showtime banner wrapping a JPG)
+- Icon prefers square raster among density variants (avoid banner-shaped `xxxhdpi` mislabeled as icon)
+- When `android:icon` and `android:banner` resolve to the same wide asset, do not center-crop the icon
+
 ### v2.0.5
 
 - Vector drawable SVG conversion: resolve `fillColor` / `strokeColor` from `resources.arsc` (including gradient drawables)
