@@ -58,6 +58,24 @@ func TestOpenFileXapk(t *testing.T) {
 	}
 }
 
+func TestOpenFileChromeManifestNoNamespaceChunks(t *testing.T) {
+	const path = "testdata/Chrome_135.0.7049.113.apk"
+	requireFixture(t, path)
+
+	apk, err := OpenFile(path)
+	if err != nil {
+		t.Fatalf("OpenFile Chrome: %v", err)
+	}
+	defer apk.Close()
+
+	if apk.PackageName() != "com.android.chrome" {
+		t.Errorf("PackageName: got %s", apk.PackageName())
+	}
+	if apk.VersionName() == "" {
+		t.Error("VersionName is empty")
+	}
+}
+
 func TestOpenFileTVIconSameAsBannerNoCrop(t *testing.T) {
 	const path = "testdata/de.sky.online-5.8.1-AndroidTV-DE.apk"
 	requireFixture(t, path)

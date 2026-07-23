@@ -125,8 +125,8 @@ func TestReadStartNamespace(t *testing.T) {
 	if f.notPrecessedNS[ResStringPoolRef(1)] != ResStringPoolRef(2) {
 		t.Errorf("got %v want %v", f.notPrecessedNS[ResStringPoolRef(1)], ResStringPoolRef(2))
 	}
-	if f.namespaces.get(ResStringPoolRef(1)) != ResStringPoolRef(2) {
-		t.Errorf("got %v want %v", f.namespaces.get(ResStringPoolRef(1)), ResStringPoolRef(2))
+	if got, ok := f.namespaces.get(ResStringPoolRef(1)); !ok || got != ResStringPoolRef(2) {
+		t.Errorf("got %v,%v want %v,true", got, ok, ResStringPoolRef(2))
 	}
 }
 
@@ -176,6 +176,30 @@ func TestAddNamespacePrefix(t *testing.T) {
 	}
 	if got != "prefix:name" {
 		t.Errorf("got %v want prefix:name", got)
+	}
+}
+
+func TestAddNamespacePrefixSyntheticAndroid(t *testing.T) {
+	// Modern aapt2 may omit START_NAMESPACE; URI is still in the string pool.
+	f := new(XMLFile)
+	f.stringPool = new(ResStringPool)
+	f.stringPool.Strings = []string{
+		"theme",
+		"versionCode",
+		"http://schemas.android.com/apk/res/android",
+	}
+	uriRef := ResStringPoolRef(2)
+	nameRef := ResStringPoolRef(1)
+
+	got, err := f.addNamespacePrefix(uriRef, nameRef)
+	if err != nil {
+		t.Fatalf("got %v want no error", err)
+	}
+	if got != "android:versionCode" {
+		t.Errorf("got %q want android:versionCode", got)
+	}
+	if len(f.pendingXMLNS) != 1 || f.pendingXMLNS[0].prefix != "android" {
+		t.Errorf("expected pending xmlns:android, got %#v", f.pendingXMLNS)
 	}
 }
 

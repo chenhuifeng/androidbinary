@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"strings"
 )
 
 // XMLFile is an XML file expressed in binary format.
@@ -14,6 +15,8 @@ type XMLFile struct {
 	stringPool     *ResStringPool
 	notPrecessedNS map[ResStringPoolRef]ResStringPoolRef
 	namespaces     xmlNamespaces
+	syntheticNS    map[ResStringPoolRef]string // URI ref -> prefix when START_NAMESPACE is missing
+	pendingXMLNS   []xmlnsPending
 	xmlBuffer      bytes.Buffer
 }
 
@@ -33,6 +36,10 @@ type (
 		key   ResStringPoolRef
 		value ResStringPoolRef
 	}
+	xmlnsPending struct {
+		prefix string
+		uri    string
+	}
 )
 
 func (x *xmlNamespaces) add(key ResStringPoolRef, value ResStringPoolRef) {
@@ -49,16 +56,15 @@ func (x *xmlNamespaces) remove(key ResStringPoolRef) {
 	}
 }
 
-func (x *xmlNamespaces) get(key ResStringPoolRef) ResStringPoolRef {
+// get returns the prefix string-pool ref for a namespace URI.
+// ok is false when the URI has not been introduced by a START_NAMESPACE chunk.
+func (x *xmlNamespaces) get(key ResStringPoolRef) (ResStringPoolRef, bool) {
 	for i := len(x.l) - 1; i >= 0; i-- {
 		if x.l[i].key == key {
-			return x.l[i].value
+			return x.l[i].value, true
 		}
 	}
-	if len(x.l) > 0 {
-		return x.l[0].value
-	}
-	return ResStringPoolRef(0)
+	return NilResStringPoolRef, false
 }
 
 // ResXMLTreeNode is basic XML tree node.
@@ -243,20 +249,81 @@ func (f *XMLFile) addNamespacePrefix(ns, name ResStringPoolRef) (string, error) 
 	if !f.HasString(name) {
 		return "", &InvalidReferenceError{Ref: name}
 	}
+	local := f.GetString(name)
 
-	if ns != NilResStringPoolRef {
-		ref := f.namespaces.get(ns)
-		if ref == 0 {
-			return "", &InvalidReferenceError{Ref: ns}
-		}
+	if ns == NilResStringPoolRef {
+		return local, nil
+	}
+
+	prefix, err := f.resolveNamespacePrefix(ns)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s:%s", prefix, local), nil
+}
+
+// resolveNamespacePrefix returns the XML prefix for a namespace URI ref.
+// Modern aapt2 may omit RES_XML_START_NAMESPACE chunks; in that case the prefix
+// is derived from the URI string (e.g. android schema → "android").
+func (f *XMLFile) resolveNamespacePrefix(ns ResStringPoolRef) (string, error) {
+	if ref, ok := f.namespaces.get(ns); ok {
 		if !f.HasString(ref) {
 			return "", &InvalidReferenceError{Ref: ref}
 		}
-		prefix := f.GetString(ref)
-
-		return fmt.Sprintf("%s:%s", prefix, f.GetString(name)), nil
+		return f.GetString(ref), nil
 	}
-	return f.GetString(name), nil
+	if f.syntheticNS != nil {
+		if prefix, ok := f.syntheticNS[ns]; ok {
+			return prefix, nil
+		}
+	}
+	if !f.HasString(ns) {
+		return "", &InvalidReferenceError{Ref: ns}
+	}
+	uri := f.GetString(ns)
+	prefix := prefixFromNamespaceURI(uri)
+	if f.syntheticNS == nil {
+		f.syntheticNS = make(map[ResStringPoolRef]string)
+	}
+	f.syntheticNS[ns] = prefix
+	f.pendingXMLNS = append(f.pendingXMLNS, xmlnsPending{prefix: prefix, uri: uri})
+	return prefix, nil
+}
+
+func prefixFromNamespaceURI(uri string) string {
+	switch uri {
+	case "http://schemas.android.com/apk/res/android":
+		return "android"
+	case "http://schemas.android.com/apk/res-auto":
+		return "app"
+	case "http://schemas.android.com/tools":
+		return "tools"
+	case "http://schemas.android.com/apk/distribution":
+		return "dist"
+	case "urn:oasis:names:tc:xliff:document:1.2":
+		return "xliff"
+	}
+	// Fall back to the last non-empty path/segment of the URI.
+	trimmed := strings.TrimRight(uri, "/")
+	if i := strings.LastIndexAny(trimmed, "/:#"); i >= 0 && i+1 < len(trimmed) {
+		seg := trimmed[i+1:]
+		if seg != "" {
+			return seg
+		}
+	}
+	if uri != "" {
+		return "ns"
+	}
+	return "ns"
+}
+
+func (f *XMLFile) flushPendingXMLNS() {
+	for _, decl := range f.pendingXMLNS {
+		fmt.Fprintf(&f.xmlBuffer, " xmlns:%s=\"", decl.prefix)
+		xml.Escape(&f.xmlBuffer, []byte(decl.uri))
+		fmt.Fprint(&f.xmlBuffer, "\"")
+	}
+	f.pendingXMLNS = nil
 }
 
 func (f *XMLFile) readStartElement(sr *io.SectionReader) error {
@@ -289,6 +356,7 @@ func (f *XMLFile) readStartElement(sr *io.SectionReader) error {
 		}
 		f.notPrecessedNS = nil
 	}
+	f.flushPendingXMLNS()
 
 	// process attributes
 	offset := int64(ext.AttributeStart + header.Header.HeaderSize)
@@ -301,6 +369,9 @@ func (f *XMLFile) readStartElement(sr *io.SectionReader) error {
 
 		var value string
 		if attr.RawValue != NilResStringPoolRef {
+			if !f.HasString(attr.RawValue) {
+				return &InvalidReferenceError{Ref: attr.RawValue}
+			}
 			value = f.GetString(attr.RawValue)
 		} else {
 			data := attr.TypedValue.Data
@@ -328,6 +399,7 @@ func (f *XMLFile) readStartElement(sr *io.SectionReader) error {
 		if err != nil {
 			return err
 		}
+		f.flushPendingXMLNS()
 		fmt.Fprintf(&f.xmlBuffer, " %s=\"", name)
 		xml.Escape(&f.xmlBuffer, []byte(value))
 		fmt.Fprint(&f.xmlBuffer, "\"")
