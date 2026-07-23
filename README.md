@@ -102,6 +102,11 @@ value, _ := tf.GetResource(resID, nil)
 
 ## Changelog
 
+### v2.0.7
+
+- Fix `AndroidManifest.xml` parsing when aapt2 omits namespace chunks (e.g. Chrome 135): synthesize `xmlns:android` from attribute namespace URIs
+- Guard attribute `RawValue` string-pool lookups with `HasString` to avoid invalid reference errors
+
 ### v2.0.6
 
 - Support `<layer-list>` / `<bitmap>` drawables (e.g. Showtime banner wrapping a JPG)
